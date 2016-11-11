@@ -147,26 +147,19 @@ class GridGaussianInference(LatentFunctionInference):
             
             kron_mvm_func = lambda x: msgp_linalg.mvm_K(x,K,sn2,W_x_z)
             shape_mvm = (n_data,n_data) ## To-Do: what is the shape of the mvm?
-            L = lambda x: -msgp_linalg.solveMVM(x,kron_mvm_func,shape_mvm,cgtol = 1e-5,cgmit=1000) # ein - zuviel?
+            L = lambda x: -msgp_linalg.solveMVM(x,kron_mvm_func,shape_mvm,cgtol = 1e-6,cgmit=1000) # ein - zuviel?
         
-    #with Timer() as t:
+ 
         alpha = -L(Y-m) 
-    #print("Computation of alpha in likelihood comp: {}".format(t.secs))
-        
-        #print(np.shape(W_x_z.dot(WTFWTFWTF.T).T))
-     
-        #print(np.shape(Y-m))
-        #print(alpha_test)
-      
-        #alpha = alpha_test
-        lda = -np.sum(np.log(s))
-        print(lda)
-        #lda = -2*sum(np.log(np.diag(linalg.cholesky(W_x_z.dot(W_x_z.dot(msgp_linalg.kronmvm(K,np.eye(n_grid))).T).T+sn2*np.eye(n_data)))));
 
+        lda = -np.sum(np.log(s))
+        #lda_exact = sum(np.log(np.diag(linalg.cholesky(W_x_z.dot(W_x_z.dot(msgp_linalg.kronmvm(K,np.eye(n_grid))).T).T+sn2*np.eye(n_data)))));
+        #lda = lda_exact
         #log_marginal = np.dot((Y-m).T,alpha)/2 + n_data*np.log(2*np.pi)/2 + lda/2 
-        print("model fit: {}".format(-np.dot((Y-m).T,alpha)/2))
-        print("complexity: {}".format(lda/2))
-        log_marginal = -np.dot((Y-m).T,alpha)/2 - n_data*np.log(2*np.pi)/2 - lda/2
+        #print("model fit: {}".format(np.dot((Y-m).T,alpha)/2))
+        #print("complexity: {}".format(lda/2))
+        #print("complexity exact: {}".format(lda_exact))
+        log_marginal = (np.dot((Y-m).T,alpha)/2 + n_data*np.log(2*np.pi)/2 + lda/2) *(-1)
         #print(log_marginal)
             
         #print(alpha)

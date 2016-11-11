@@ -96,3 +96,39 @@ class RBF(Stationary):
     def update_gradients_full(self, dL_dK, X, X2=None):
         super(RBF,self).update_gradients_full(dL_dK, X, X2)
         if self.use_invLengthscale: self.inv_l.gradient =self.lengthscale.gradient*(self.lengthscale**3/-2.)
+
+    def dK_dTheta(self,X,X2=None):
+        
+        local_grad_dict =dict()
+    
+        local_grad_dict["variance"] = self.K(X, X2=X2)/self.variance
+
+        #self.variance.gradient = np.sum(self.K(X, X2)* dL_dK)/self.variance        
+        
+        dK_dr = self.dK_dr_via_X(X,X2)
+        #print(dK_dr)
+        
+        if self.ARD:
+            """
+                dr(x,z)dl_j= -((x_j-zj)^2/r) * (1/l_j^3)
+            """
+            if X2 is None: X2 = X
+            local_grad_dict["lengthscale"] = [None]*self.input_dim
+            k_of_r_via_X = self.K_of_r(self._scaled_dist(X,X2))
+            tmp = dK_dr*self._inv_dist(X, X2)
+            test = [-tmp * np.square(self._unscaled_dist(X[:,q:q+1],X2[:,q:q+1]))/self.lengthscale[q]**3 for q in range(self.input_dim)]
+            local_grad_dict["lengthscale"] = test
+            """
+            for ii in range(self.input_dim):
+                
+                X_ii = np.reshape(X[:,ii],(-1,1))
+                X2_ii = np.reshape(X2[:,ii],(-1,1))
+                
+                grads = k_of_r_via_X*np.square(self._unscaled_dist(X_ii,X2=X2_ii))/(self.lengthscale[ii]**3)
+                print(grads-test[ii])
+                local_grad_dict["lengthscale"][ii] = grads
+            """
+        else:
+            local_grad_dict["lengthscale"] = -dK_dr*self._scaled_dist(X,X2)/self.lengthscale
+            
+        return local_grad_dict
