@@ -8,7 +8,7 @@ import scipy
 import warnings
 from scipy import linalg
 
-def solveMVM(p,mvm_func,shape_mvm,cgtol = 1e-5,cgmit=100):
+def solveMVM(p,mvm_func,shape_mvm,cgtol = 1e-7,cgmit=700):
     mvm_operator = scipy.sparse.linalg.LinearOperator(shape_mvm,mvm_func, dtype='float64')
     q,flag = scipy.sparse.linalg.cg(mvm_operator,b=p,tol = cgtol,maxiter = cgmit)
 #q,flag = conjgrad(mvm,p,tol=cgtol,maxit=cgmit)
@@ -129,8 +129,8 @@ def eigr(A,tol = None):
     """
 
     """
-
-    D,V = linalg.eig((A+A.T)/2)
+    
+    D,V = linalg.eigh((A+A.T)/2)
     n = np.shape(A)[0]
 
     #sort_idx = D.argsort()[::-1][:n]

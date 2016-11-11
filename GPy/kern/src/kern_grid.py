@@ -29,7 +29,7 @@ class KernGrid(CombinationKernel):
     
     def __init__(self,kernels,likelihood,input_grid_dims,useGPU = False, interpolation_method = None):
         super(KernGrid,self).__init__(kernels,'kern_grid')
-        
+
         ## Data dimensions per grid dimension
         self.input_grid_dims = input_grid_dims
         
@@ -88,7 +88,7 @@ class KernGrid(CombinationKernel):
         if self.Z_all is None:
             raise ValueError("Need to initialize Z before initializing interpolator")
         if self.interpolation_method == "NNRegression":
-            self.interpolator = NNRegression(Z=self.Z_all,*args,**kwargs)
+            self.interpolator = NNRegression(self.input_grid_dims,Z_all=self.Z_all,Z=self.Z,*args,**kwargs)
         #elif ...:
         else:
             raise NotImplementedError
@@ -125,7 +125,7 @@ class KernGrid(CombinationKernel):
         self.n_grid = n_grid
         
         if not self.interpolator is None: ##this can happen when initing Z the first time
-            self.interpolator.update_Z(Z)
+            self.interpolator.update_Z(self.Z,self.Z_all)
     
     def custom_K(self,X,X2 = None):
         """
@@ -136,18 +136,10 @@ class KernGrid(CombinationKernel):
         if X2 is None:
             X2 = X
               
-        K_all = np.zeros((np.shape(X)[0],np.shape(X2)[0]))
-        
-        dims = [None]*self.q
-        
-        dims[0] = np.arange(self.input_grid_dims[0])
-        for ii in np.arange(1,self.q):
-            
-            max_dim_ii = dims[ii-1][-1]+1
-            dims[ii] = np.arange(max_dim_ii,max_dim_ii+self.input_grid_dims[ii])
-        
+        K_all = np.ones((np.shape(X)[0],np.shape(X2)[0]))
+
         for ii in range(self.q):
-            K_all =  np.multiply(K_all , self.kernels[ii].K(X[:,dims[ii]],X2[:,dims[ii]]))
+            K_all =  np.multiply(K_all , self.kernels[ii].K(X[:,self.input_grid_dims[ii]],X2[:,self.input_grid_dims[ii]]))
             
         return K_all
     
@@ -159,16 +151,9 @@ class KernGrid(CombinationKernel):
               
         K_all = np.ones((np.shape(X)[0],1))
         
-        dims = [None]*self.q
-        
-        dims[0] = np.arange(self.input_grid_dims[0])
-        for ii in np.arange(1,self.q):
-            
-            max_dim_ii = dims[ii-1][-1]+1
-            dims[ii] = np.arange(max_dim_ii,max_dim_ii+self.input_grid_dims[ii])
-        
+
         for ii in range(self.q):
-            K_ii = np.reshape(self.kernels[ii].Kdiag(X[:,dims[ii]]),(-1,1))
+            K_ii = np.reshape(self.kernels[ii].Kdiag(X[:,self.input_grid_dims[ii]]),(-1,1))
             K_all =  np.multiply(K_all , K_ii)
             
         return K_all
@@ -246,13 +231,13 @@ class KernGrid(CombinationKernel):
         return self.interpolator.getWeights(X) #shit, we probably need 
                                                               #the whole grid 
         
-    def getdWdX(self,X,feature_dims = None):
+    def getdWdX(self,X,feature_dims = None,compute_W = False):
         """
         Get the derivative of the weight matrix for interpolation between grid Z and 
         the input X w.r.t X
         
         """
-        return self.interpolator.dW_dX(X,feature_dims = feature_dims)
+        return self.interpolator.dW_dX(X,feature_dims = feature_dims,compute_W = compute_W)
     def get_toeplitz_dims(self):
         """
         Get boolean vector of length p where 
@@ -314,8 +299,7 @@ class KernGrid(CombinationKernel):
             
                 [Vs[ii],Es[ii]] = msgp_linalg.eigr(Ks[ii]) #DO we need the Es?
             
-        """   
-            
+        """     
         for ii in range(self.q) :
         # turns out that formula below is the same as:
         # gammas[ii]= diag(np.dot(Vs[ii].T,np.dot(Ks[ii],Vs[ii])))
@@ -325,8 +309,7 @@ class KernGrid(CombinationKernel):
             """
             
             gammas[ii] = np.ravel(np.sum(np.multiply(np.dot(Vs[ii].T,Ks[ii]),Vs[ii].T),axis = 1))
-            #gammas[ii] = np.diag(np.dot(Vs[ii].T,np.dot(Ks[ii],Vs[ii])))
-            
+
             
             
         n_data = len(self.X[:,0])
@@ -336,9 +319,8 @@ class KernGrid(CombinationKernel):
         #diag((Eig_all+sn2*I_N)^(-1)) first part of eq 5.35
         for ii in range(self.q):
             
-        #with Timer() as t:
             dKii_dthetas = self.kernels[ii].dK_dTheta(self.Z[ii]) 
-        #print("Runtime of local gradients: {} ".format(t.secs))
+  
             for hyp,dKii_dhyp in dKii_dthetas.items():
                 
                 hyperparam = getattr(self.kernels[ii], hyp)
@@ -348,7 +330,7 @@ class KernGrid(CombinationKernel):
                     for kk in range(len(dKii_dhyp)): #iterate over single elements of hyperparam vector
                         gamma_dKii_dhyp = np.ravel(np.sum(np.multiply(np.dot(Vs[ii].T,dKii_dhyp[kk]),Vs[ii].T),axis=1))
                         #gamma_dKii_dhyp = np.diag(np.dot(Vs[ii].T,np.dot(dKii_dhyp[kk],Vs[ii])))
-
+                        #print(gamma_dKii_dhyp)
                         gamma_hyp = 1
                     #with Timer() as t:
                         for jj in range(self.q): 
@@ -395,30 +377,17 @@ class KernGrid(CombinationKernel):
                         
                         #hyperparam.gradient = dL_dthetas[ii][hyp]
                     #with Timer() as t:
-                        hyperparam.gradient[kk] = -0.5*(-np.sum(alpha_long*kappa_ii) + np.sum(gamma_hyp_dataspace*s))
+                        hyperparam.gradient[kk] = 0.5*(-np.sum(alpha_long*kappa_ii) + np.sum(gamma_hyp_dataspace*s))*(-1)
                     #print("Runtime of last computation in gradients: {} ".format(t.secs))
                 else:
                     # turns out that formula below is the same as:
                     # gammas[ii][hyp] = diag(np.dot(Vs[ii].T,np.dot(dKii_dhyp,Vs[ii])))
                     # but generally faster
-                    
-                    """
-                    TO-DO: Fast formula NOT working as of now
-                    why Dafuq is this different :O :O
-                    """
+                
                     gamma_dKii_dhyp = np.sum(np.multiply(np.dot(Vs[ii].T,dKii_dhyp),Vs[ii].T),axis=1)
+
                     gamma_dKii_dhyp = np.ravel(gamma_dKii_dhyp)
-                    #print("Wrong gamma_dKii_dhyp for hyperparameter {}".format(hyp))
-                    #print(gamma_dKii_dhyp_test[-5:-1])
-                    #gamma_dKii_dhyp = np.diag(np.dot(Vs[ii].T,np.dot(dKii_dhyp,Vs[ii])))
-                    #print(np.shape(gamma_dKii_dhyp))
-                    #print("gamma_dKii_dhyp for hyperparameter {}".format(hyp))
-                    #print(gamma_dKii_dhyp[-5:-1])
-                    #print(gamma_dKii_dhyp)
-                    #print("testest")
-                    """
-                    TO-DO: problem: need to include the w_x_z in gamma_hyp    
-                    """
+
                     
                     gamma_hyp = 1
                     
@@ -427,9 +396,7 @@ class KernGrid(CombinationKernel):
                             gamma_hyp = np.kron(gamma_hyp, gamma_dKii_dhyp)
                         else:
                             gamma_hyp = np.kron(gamma_hyp, gammas[jj])
-                    #print(gamma_hyp)
-                    # can Ks[ii+1:self.p-1] be a problem? -> think not, because Ks[p:p-1] = []
-    
+
                     tmp_list = Ks[0:ii]
                     
                     tmp_list.append(dKii_dhyp)
@@ -456,17 +423,15 @@ class KernGrid(CombinationKernel):
                     
                     kappa_ii = np.reshape(kappa_ii,(-1,1))
                     
-                    #print(sort_index)
-                    #print(gamma_hyp[sort_index[0:n_data]])
                     gamma_hyp_dataspace = (float(n_data)/float(self.n_grid))*gamma_hyp[sort_index[0:n_data]]
                     
                     ##this is the update step
+                    ##print(np.shape(gamma_hyp_dataspace))
                     
-                    
-                    hyperparam.gradient = -0.5*(-np.dot(alpha_long.T,kappa_ii) + np.dot(gamma_hyp_dataspace.T,s))
+                    hyperparam.gradient = 0.5*(-np.dot(alpha_long.T,kappa_ii) + np.dot(gamma_hyp_dataspace.T,s)) *(-1)
                 
         #precision.gradient = sn2 * (sum(s) - np.dot(alpha.T,alpha)) #no need to lift alpha here       
-        precision.gradient = -sn2 * (sum(s) - np.dot(alpha.T,alpha))
+        precision.gradient = (-1)*sn2 * (sum(s) - np.dot(alpha.T,alpha))
         
     
     def _cartesian_simple(self,x,y):
